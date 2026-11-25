@@ -1,0 +1,51 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+          - os: ubuntu-24.04
+            name: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libasound2-dev libfreetype-dev libfontconfig1-dev \
+            libx11-dev libxrandr-dev libxcursor-dev libxinerama-dev libxext-dev libxcomposite-dev mesa-common-dev xvfb
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release ${{ runner.os == 'macOS' && '-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"' || '' }}
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Core DSP tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Host checks (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run -a "build/plugin/vcs_host_check_artefacts/Release/vcs_host_check" check "build/plugin/VocalChoirStudio_artefacts/Release/VST3/Vocal Choir Studio.vst3"
+
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: VocalChoirStudio-${{ matrix.name }}
+          path: |
+            build/plugin/VocalChoirStudio_artefacts/Release/VST3
+            build/plugin/VocalChoirStudio_artefacts/Release/AU
+            build/plugin/VocalChoirStudio_artefacts/Release/Standalone
